@@ -1,0 +1,112 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2013-2022 Jeremy Kister
+# Function: colorize logfile output
+# inspired/plucks from Jeff Weisberg's http://www.tcp4me.com/code/red
+# http://jeremy.kister.net/code/green
+
+# typical use:
+#  ex: tail -f logfile | green -green something -blue else -blue foo -v junk
+# options specified first have higher priority
+
+use strict;
+use Getopt::Long qw(:config pass_through);
+
+my %data;
+my %opt;
+my @expt;
+my $pri = 0;
+
+my %color = ( red   => '1;31', blue    => '1;34', purple => '1;35',
+              cyan  => '0;36', magenta => '1;35', yellow => '0;33', 
+              green => '0;32', gray    => '0;37',
+            );
+
+GetOptions( "v=s@"      => \@expt,
+        "i"         => sub { $opt{i} = 'i' },
+        "x"         => sub { $opt{x} = 1 },
+        "replace|r=s@" => sub { shift; my ($s,$r) = split /\//, shift; push @{$opt{r}}, [ $s,$r ]; },
+        "red=s@"    => sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "blue=s@"   => sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "green=s@"  => sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "purple=s@" => sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "magenta=s@"=> sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "cyan=s@"   => sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "yellow=s@" => sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "gray=s@"   => sub { my $x = shift; push @{ $data{$pri++}{$x} }, shift; },
+        "help|?"    => \&usage,
+          );
+
+# make non-flagged arguments auto-green
+# non-flagged get highest priority
+for my $arg (@ARGV){
+    for my $pri (sort { $b <=> $a } keys %data){
+        $data{$pri+1} = $data{$pri};
+    }
+    delete $data{0};
+    push @{ $data{0}{green} }, $arg;
+}
+
+my @only;
+for my $p (sort keys %data){
+    my ($c) = keys %{$data{$p}};
+    for my $expr ( @{$data{$p}{$c}} ){
+        my $nc = $opt{i} ? lc($expr) : $expr;
+        push @only, $nc;
+    }
+}
+
+$| = 1;
+LOOP: while(<STDIN>){
+    chop;
+    for my $r ( @{$opt{r}} ){
+        s{$r->[0]}{$r->[1]}g;
+    }
+    for my $v (@expt){ next LOOP if /(?$opt{i})$v/ };
+    if( $opt{x} ){
+        my $ok_to_print;
+        for my $x (@only){
+            if( /(?$opt{i})$x/ ){
+                $ok_to_print=1;
+                last;
+            }
+        }
+        next LOOP unless $ok_to_print;
+    }
+
+    for my $p (sort keys %data){
+        my ($c) = keys %{$data{$p}};
+        for my $expr ( @{$data{$p}{$c}} ){
+            if ( /(?$opt{i})$expr/ ){
+                print "\e\[$color{$c}m$_\e\[0m\n";
+                next LOOP;
+            }
+        }
+    }
+    print "$_\n";
+
+}
+
+sub usage {
+    print STDERR <<EOH;
+  -v pattern    skip lines matching pattern (think "grep -v")
+  -x            skip all lines /not/ matching colorized patterns
+  -i            case independant
+  -r            replace (e.g., 'foo/bar')
+  -red    \\
+  -blue     |
+  -green    |
+  -purple   |  <pattern>
+  -yellow   | 
+  -magenta  |
+  -cyan   //
+  -help        do not print this message
+
+  parameters may be specified multiple times
+  ex: tail -f logfile | green -green something -blue else -blue foo -v junk
+  flagged patterns specified first have higher priority (echo testing | green -red test -green ting)
+  non-flagged patterns have higher priority than flagged.
+EOH
+    ;
+    exit;
+}
